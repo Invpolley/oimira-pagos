@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#9a3412" />
+<title>OiMira Pagos — Facturas y créditos</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<style>
+  :root{ --brand:#9a3412; --brand2:#c2410c; --bg:#fff7ed; --card:#ffffff; --txt:#1c1917;
+    --muted:#78716c; --line:#e7e5e4; --ok:#16a34a; --bad:#dc2626; --warn:#d97706; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+  .hidden{display:none !important}
+  header{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;padding:12px 16px;position:sticky;top:0;z-index:10}
+  header h1{font-size:17px;margin:0}
+  header .sub{font-size:11px;opacity:.85}
+  nav{display:flex;gap:6px;padding:10px 12px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:52px;z-index:9}
+  nav button{flex:1;border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 14px;font-size:14px;cursor:pointer;color:var(--muted)}
+  nav button.act{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  main{max-width:760px;margin:0 auto;padding:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input,select,textarea{padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:#fff;color:var(--txt)}
+  input:focus,select:focus{outline:2px solid var(--brand2)}
+  .btn{background:var(--brand);color:#fff;border:0;border-radius:10px;padding:10px 16px;font-size:14.5px;font-weight:600;cursor:pointer}
+  .btn.sec{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+  .btn.mini{padding:6px 10px;font-size:12.5px;border-radius:8px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
+  .tag.venc{background:#fee2e2;color:#b91c1c}
+  .tag.hoy{background:#ffedd5;color:#9a3412}
+  .tag.man{background:#fef3c7;color:#92400e}
+  .tag.prox{background:#e0f2fe;color:#075985}
+  .tag.ok{background:#dcfce7;color:#15803d}
+  .item{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#fff}
+  .item.venc{border-color:#fca5a5;background:#fef2f2}
+  .item.hoy{border-color:#fdba74;background:#fff7ed}
+  .item .meta{font-size:12px;color:var(--muted);margin-top:2px}
+  .sec-t{font-size:13px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px}
+  .msg{font-size:13px;margin-top:8px}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .tot{font-size:13px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+  .foot{color:var(--muted);font-size:10.5px;text-align:center;padding:14px}
+  .saldo{font-size:18px;font-weight:800}
+  details summary{cursor:pointer;font-size:13px;color:var(--muted);margin:10px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>💳 OiMira Pagos</h1>
+  <div class="sub">Facturas, proveedores y créditos</div>
+</header>
+<nav id="tabs">
+  <button data-t="pagos" class="act">📅 Pagos</button>
+  <button data-t="creditos">🤝 Créditos</button>
+</nav>
+<main>
+  <section id="t-pagos">
+    <div class="card">
+      <b id="pgFormTitulo">➕ Nuevo pago / factura</b>
+      <div class="row" style="margin-top:8px">
+        <input id="pTitulo" placeholder="¿Qué se paga? (ej. Luz, Harina Polar)" style="flex:2;min-width:150px" />
+        <input id="pProv" placeholder="Proveedor (opcional)" style="flex:1;min-width:110px" />
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="pMonto" type="number" step="0.01" placeholder="Monto" style="width:110px" />
+        <select id="pMoeda"><option>R$</option><option>Bs</option><option>USD</option></select>
+        <label style="font-size:12px">Vence<br><input id="pVence" type="date" /></label>
+        <select id="pRec">
+          <option value="nunca">No se repite</option>
+          <option value="semanal">Cada semana</option>
+          <option value="quincenal">Cada 15 días</option>
+          <option value="mensual">Cada mes</option>
+        </select>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="pNota" placeholder="Nota (opcional)" style="flex:1" />
+        <button class="btn" id="pGuardar">Guardar</button>
+        <button class="btn sec hidden" id="pCancelar">Cancelar</button>
+      </div>
+      <div id="pMsg" class="msg"></div>
+    </div>
+    <div class="row" id="pTotales"></div>
+    <div id="pLista"></div>
+    <details><summary>✔ Ver pagados recientes</summary><div id="pPagados"></div></details>
+  </section>
+
+  <section id="t-creditos" class="hidden">
+    <div class="card">
+      <b>➕ Nuevo crédito de proveedor</b>
+      <div class="row" style="margin-top:8px">
+        <input id="cProv" placeholder="Proveedor (ej. Harina Polar — Turco)" style="flex:2;min-width:150px" />
+        <input id="cDesc" placeholder="Descripción (opcional)" style="flex:1;min-width:110px" />
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="cMonto" type="number" step="0.01" placeholder="Monto total" style="width:130px" />
+        <select id="cMoeda"><option>R$</option><option>Bs</option><option>USD</option></select>
+        <button class="btn" id="cGuardar">Guardar crédito</button>
+      </div>
+      <div id="cMsg" class="msg"></div>
+    </div>
+    <div id="cLista"></div>
+    <details><summary>✔ Ver créditos cerrados</summary><div id="cCerrados"></div></details>
+  </section>
+</main>
+<div class="foot">OiMira Pagos · <span id="ver"></span> · v2026-08-18.1</div>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="app.js"></script>
+<script>
+if ("serviceWorker" in navigator) addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=1").catch(()=>{}));
+</script>
+</body>
+</html>
