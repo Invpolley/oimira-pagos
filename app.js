@@ -188,6 +188,13 @@ async function cargarCreditos(){
 window.abonar = async function(id){
   var monto = Number(document.getElementById("ab-" + id).value || 0);
   if(!(monto > 0)) return msg("cMsg", "Escribe el monto del abono.", true);
+  // el abono no puede dejar el credito en negativo
+  var cred = CREDITOS.find(function(x){ return x.id === id; });
+  if(cred){
+    var abonado = ABONOS.filter(function(a){ return a.credito_id === id; }).reduce(function(s,a){ return s + Number(a.monto); }, 0);
+    var saldo = Number(cred.monto_total) - abonado;
+    if(monto > saldo) return msg("cMsg", "⛔ El abono (" + fmtM(monto, cred.moeda) + ") es mayor que el saldo (" + fmtM(saldo, cred.moeda) + "). Máximo: " + fmtM(saldo, cred.moeda) + ".", true);
+  }
   var nota = document.getElementById("abn-" + id).value.trim() || null;
   var r = await sb.from("pago_credito_abono").insert({ credito_id: id, monto: monto, fecha: hoyVE(), nota: nota });
   if(r.error) return msg("cMsg", r.error.message, true);
