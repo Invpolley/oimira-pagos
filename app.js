@@ -13,6 +13,27 @@ function fmtM(m, mo){ return (mo || "R$") + " " + Number(m).toLocaleString("es-V
 function msg(id, t, err){ var el = $("#" + id); el.textContent = t || ""; el.className = "msg " + (err ? "err" : "ok"); if(t) setTimeout(function(){ el.textContent = ""; }, 4000); }
 function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
+
+/* ===== Interconexion con la caja OiMira ===== */
+var CANALES_CAJA = {
+  "R$": [["Efectivo","💵 Efectivo R$"],["PIX","🇧🇷 PIX"],["PuntoBr","💳 Punto Br"]],
+  "Bs": [["PagoMovil","📲 Pago Móvil"],["BanescoPos","💳 Banesco POS"],["BsEfectivo","💵 Bs efectivo"]],
+  "USD": [["USD","💵 USD"]]
+};
+// Pregunta si el pago salio de la caja; si si, crea el retiro y devuelve su id (o null).
+async function retiroDesdeCaja(moeda, monto, motivo, destino, nota){
+  if(!confirm("¿Este pago salió de la CAJA OiMira?\n\nAceptar = SÍ (se descuenta de la caja)\nCancelar = No (se pagó con otro dinero)")) return null;
+  var ops = CANALES_CAJA[moeda] || [];
+  var menu = ops.map(function(o,i){ return (i+1) + ". " + o[1]; }).join("\n");
+  var sel = prompt("¿De qué caja salió?\n\n" + menu + "\n\nEscribe el número:", "1");
+  if(sel === null) return null;
+  var idx = parseInt(sel, 10) - 1;
+  if(!(idx >= 0 && idx < ops.length)){ msg("pMsg", "Canal inválido — el pago se registró SIN descontar de la caja.", true); return null; }
+  var r = await sb.rpc("pagos_registrar_retiro", { p_fecha: hoyVE(), p_canal: ops[idx][0], p_moeda: moeda,
+    p_monto: monto, p_motivo: motivo, p_destino: destino || null, p_nota: nota || null });
+  if(r.error){ msg("pMsg", "No se pudo crear el retiro en caja: " + r.error.message, true); return null; }
+  return r.data;
+}
 /* ===== Tabs ===== */
 document.getElementById("tabs").addEventListener("click", function(e){
   var b = e.target.closest("button"); if(!b) return;
@@ -60,7 +81,7 @@ function limpiarFormPago(){
 
 var PAGOS = [];
 async function cargarPagos(){
-  var r = await sb.from("pago_factura").select("*").order("vence");
+  var r = await sb.from("pago_factura_saldo").select("*").order("vence");
   if(r.error){ $("#pLista").innerHTML = '<p class="msg err">' + esc(r.error.message) + '</p>'; return; }
   PAGOS = r.data || [];
   var hoy = hoyVE(), man = addDias(hoy, 1);
@@ -74,7 +95,7 @@ async function cargarPagos(){
   });
   // totales pendientes por moneda
   var tot = {};
-  pend.forEach(function(p){ tot[p.moeda] = (tot[p.moeda] || 0) + Number(p.monto); });
+  pend.forEach(function(p){ tot[p.moeda] = (tot[p.moeda] || 0) + Number(p.saldo); });
   $("#pTotales").innerHTML = Object.keys(tot).map(function(m){
     return '<span class="tot">Pendiente: <b>' + fmtM(tot[m], m) + '</b></span>';
   }).join("") || "";
@@ -84,9 +105,9 @@ async function cargarPagos(){
     return '<div class="item ' + (cls || "") + '">' +
       '<div class="row" style="justify-content:space-between">' +
         '<div style="min-width:0"><b>' + esc(p.titulo) + '</b>' + (p.proveedor ? ' <span class="meta">· ' + esc(p.proveedor) + '</span>' : '') +
-        '<div class="meta">' + fmtM(p.monto, p.moeda) + ' · vence ' + fmtD(p.vence) + (recTxt ? ' · ' + recTxt : '') + (p.nota ? ' · ' + esc(p.nota) : '') + '</div></div>' +
+        '<div class="meta">' + fmtM(p.monto, p.moeda) + (Number(p.abonado) > 0 ? ' · abonado ' + fmtM(p.abonado, p.moeda) + ' · <b>saldo ' + fmtM(p.saldo, p.moeda) + '</b>' : '') + ' · vence ' + fmtD(p.vence) + (recTxt ? ' · ' + recTxt : '') + (p.nota ? ' · ' + esc(p.nota) : '') + '</div></div>' +
         '<div class="row" style="gap:6px;flex-wrap:nowrap">' + tag +
-          '<button class="btn mini" onclick="pagar(\'' + p.id + '\')">✔ Pagar</button>' +
+          '<button class="btn mini" onclick="pagar(\'' + p.id + '\')">💵 Pagar / Abonar</button>' +
           '<button class="btn mini sec" onclick="editarPago(\'' + p.id + '\')">✏️</button>' +
           '<button class="btn mini sec" style="color:var(--bad);border-color:var(--bad)" onclick="borrarPago(\'' + p.id + '\')">🗑</button>' +
         '</div></div></div>';
@@ -109,18 +130,21 @@ async function cargarPagos(){
 
 window.pagar = async function(id){
   var p = PAGOS.find(function(x){ return x.id === id; }); if(!p) return;
-  if(!confirm("¿Marcar como PAGADO?\n\n" + p.titulo + " — " + fmtM(p.monto, p.moeda))) return;
-  var r = await sb.from("pago_factura").update({ estado: "pagado", pagado_at: new Date().toISOString() }).eq("id", id);
+  var saldo = Number(p.saldo);
+  var val = prompt("¿Cuánto pagas de \"" + p.titulo + "\"?\n(Saldo pendiente: " + fmtM(saldo, p.moeda) + " — puedes abonar una parte)", String(saldo));
+  if(val === null) return;
+  var monto = Number(val);
+  if(!(monto > 0)) return msg("pMsg", "Monto inválido.", true);
+  if(monto > saldo) return msg("pMsg", "⛔ El pago (" + fmtM(monto, p.moeda) + ") es mayor que el saldo (" + fmtM(saldo, p.moeda) + ").", true);
+  var retiroId = await retiroDesdeCaja(p.moeda, monto, "Pago proveedor", p.proveedor || p.titulo, "OiMira Pagos: " + p.titulo);
+  var r = await sb.rpc("pago_abonar_factura", { p_factura: id, p_monto: monto, p_nota: null, p_retiro: retiroId });
   if(r.error) return msg("pMsg", r.error.message, true);
-  // recurrencia: crear el siguiente automaticamente
-  if(p.recurrencia !== "nunca"){
-    var prox = p.recurrencia === "semanal" ? addDias(p.vence, 7) : p.recurrencia === "quincenal" ? addDias(p.vence, 15) : addMes(p.vence);
-    await sb.from("pago_factura").insert({ titulo: p.titulo, proveedor: p.proveedor, monto: p.monto, moeda: p.moeda,
-      vence: prox, recurrencia: p.recurrencia, nota: p.nota });
-    msg("pMsg", "✅ Pagado. Se creó el próximo (" + fmtD(prox) + ").");
-  } else msg("pMsg", "✅ Pagado.");
+  var d = r.data || {};
+  if(d.pagada) msg("pMsg", "✅ Factura pagada por completo." + (d.proxima ? " Se creó la próxima (" + fmtD(d.proxima) + ")." : "") + (retiroId ? " Descontado de la caja." : ""));
+  else msg("pMsg", "✅ Abono registrado. Saldo restante: " + fmtM(d.saldo, p.moeda) + "." + (retiroId ? " Descontado de la caja." : ""));
   cargarPagos();
 };
+
 window.editarPago = function(id){
   var p = PAGOS.find(function(x){ return x.id === id; }); if(!p) return;
   EDIT_ID = id;
@@ -188,7 +212,6 @@ async function cargarCreditos(){
 window.abonar = async function(id){
   var monto = Number(document.getElementById("ab-" + id).value || 0);
   if(!(monto > 0)) return msg("cMsg", "Escribe el monto del abono.", true);
-  // el abono no puede dejar el credito en negativo
   var cred = CREDITOS.find(function(x){ return x.id === id; });
   if(cred){
     var abonado = ABONOS.filter(function(a){ return a.credito_id === id; }).reduce(function(s,a){ return s + Number(a.monto); }, 0);
@@ -196,11 +219,13 @@ window.abonar = async function(id){
     if(monto > saldo) return msg("cMsg", "⛔ El abono (" + fmtM(monto, cred.moeda) + ") es mayor que el saldo (" + fmtM(saldo, cred.moeda) + "). Máximo: " + fmtM(saldo, cred.moeda) + ".", true);
   }
   var nota = document.getElementById("abn-" + id).value.trim() || null;
-  var r = await sb.from("pago_credito_abono").insert({ credito_id: id, monto: monto, fecha: hoyVE(), nota: nota });
+  var retiroId = cred ? await retiroDesdeCaja(cred.moeda, monto, "Abono a crédito", cred.proveedor, "OiMira Pagos: abono crédito " + cred.proveedor) : null;
+  var r = await sb.rpc("pago_abonar_credito", { p_credito: id, p_monto: monto, p_nota: nota, p_retiro: retiroId });
   if(r.error) return msg("cMsg", r.error.message, true);
-  msg("cMsg", "✅ Abono registrado.");
+  msg("cMsg", "✅ Abono registrado." + (retiroId ? " Descontado de la caja." : ""));
   cargarCreditos();
 };
+
 window.cerrarCredito = async function(id){
   if(!confirm("¿Cerrar este crédito? (saldo en cero)")) return;
   await sb.from("pago_credito").update({ cerrado: true }).eq("id", id);
