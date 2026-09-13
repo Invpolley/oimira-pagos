@@ -45,9 +45,25 @@
   .foot{color:var(--muted);font-size:10.5px;text-align:center;padding:14px}
   .saldo{font-size:18px;font-weight:800}
   details summary{cursor:pointer;font-size:13px;color:var(--muted);margin:10px 0}
+
+  /* PWA-RESILIENTE: servidor caído / sin internet */
+  .srv-banner{position:sticky;top:0;z-index:19;display:flex;gap:10px;align-items:flex-start;background:#3a2b1e;border-bottom:2px solid #f59e0b;color:#f8e3c3;padding:10px 14px;font-size:12.5px;line-height:1.45}
+  .srv-banner.oculto{display:none}
+  .srv-banner .ico{font-size:20px;line-height:1}
+  .srv-banner b{color:#fbbf24}
+  .net-banner{position:sticky;top:0;z-index:19;background:#1e293b;color:#e2e8f0;padding:8px 14px;font-size:12.5px;text-align:center;line-height:1.4}
+  .net-banner.oculto{display:none}
 </style>
 </head>
 <body>
+<!-- PWA-RESILIENTE: banners -->
+<div id="netBanner" class="net-banner oculto">📵 <b>Sin internet.</b> Puedes seguir usando la app: lo que hagas se guarda en este equipo y se envía cuando vuelva la señal.</div>
+<div id="srvBanner" class="srv-banner oculto">
+  <span class="ico">⚠️</span>
+  <div><b>El servidor de la app no responde en este momento.</b><br>
+  Estás usando la última versión guardada en este equipo. <b>Puedes seguir trabajando:</b> los datos se guardan y se envían solos cuando el servidor vuelva.</div>
+</div>
+
 <header>
   <h1>💳 OiMira Pagos</h1>
   <div class="sub">Facturas, proveedores y créditos</div>
@@ -110,7 +126,24 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="app.js"></script>
 <script>
-if ("serviceWorker" in navigator) addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=1").catch(()=>{}));
+if ("serviceWorker" in navigator) addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js?v=20260913").then(reg=>{ reg.update(); reg.addEventListener("updatefound",()=>{ const w=reg.installing; w&&w.addEventListener("statechange",()=>{ if(w.state==="activated"&&navigator.serviceWorker.controller) location.reload(); }); }); }).catch(()=>{}); });
+</script>
+
+<script>
+/* PWA-RESILIENTE: ping al hosting (el SW deja pasar ?ping=) + estado de red */
+(function(){
+  function pintarRed(){ var b=document.getElementById("netBanner"); if(b) b.classList.toggle("oculto", navigator.onLine); }
+  async function pingServidor(){
+    var b=document.getElementById("srvBanner"); if(!b) return;
+    try{ var r=await fetch("./manifest.json"+"?ping="+Date.now(),{cache:"no-store"}); b.classList.toggle("oculto", r.ok); }
+    catch(e){ b.classList.add("oculto"); }
+  }
+  window.addEventListener("online", function(){ pintarRed(); pingServidor(); });
+  window.addEventListener("offline", pintarRed);
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden){ pintarRed(); pingServidor(); } });
+  setInterval(pingServidor, 60000);
+  pintarRed(); pingServidor();
+})();
 </script>
 </body>
 </html>
