@@ -20,20 +20,21 @@ var CANALES_CAJA = {
   "Bs": [["PagoMovil","📲 Pago Móvil"],["BanescoPos","💳 Banesco POS"],["BsEfectivo","💵 Bs efectivo"]],
   "USD": [["USD","💵 USD"]]
 };
-// Pregunta si el pago salio de la caja; si si, crea el retiro y devuelve su id (o null).
-async function retiroDesdeCaja(moeda, monto, motivo, destino, nota){
+// Pregunta si el pago salio de la caja y de que canal. Devuelve el canal (texto) o null (otro dinero).
+// 2026-09-24: ya NO crea el retiro aparte: el retiro y el abono se hacen juntos en el servidor
+// (pago_pagar_factura / pago_pagar_credito, una sola transaccion). Antes, si el abono fallaba despues
+// del retiro (sin senal, factura ya pagada...), quedaba el dinero descontado de la caja sin el pago.
+function elegirCanalCaja(moeda, msgId){
   if(!confirm("¿Este pago salió de la CAJA OiMira?\n\nAceptar = SÍ (se descuenta de la caja)\nCancelar = No (se pagó con otro dinero)")) return null;
   var ops = CANALES_CAJA[moeda] || [];
   var menu = ops.map(function(o,i){ return (i+1) + ". " + o[1]; }).join("\n");
   var sel = prompt("¿De qué caja salió?\n\n" + menu + "\n\nEscribe el número:", "1");
-  if(sel === null) return null;
+  if(sel === null) return undefined; // cancelado: no se registra nada
   var idx = parseInt(sel, 10) - 1;
-  if(!(idx >= 0 && idx < ops.length)){ msg("pMsg", "Canal inválido — el pago se registró SIN descontar de la caja.", true); return null; }
-  var r = await sb.rpc("pagos_registrar_retiro", { p_fecha: hoyVE(), p_canal: ops[idx][0], p_moeda: moeda,
-    p_monto: monto, p_motivo: motivo, p_destino: destino || null, p_nota: nota || null });
-  if(r.error){ msg("pMsg", "No se pudo crear el retiro en caja: " + r.error.message, true); return null; }
-  return r.data;
+  if(!(idx >= 0 && idx < ops.length)){ msg(msgId, "Canal inválido — no se registró nada. Vuelve a intentarlo.", true); return undefined; }
+  return ops[idx][0];
 }
+function errRed(e){ var m = String((e && (e.message || e)) || ""); return !navigator.onLine || /fetch|network|load failed/i.test(m) ? "📵 Sin conexión: no se registró nada. Inténtalo cuando vuelva la señal." : m; }
 /* ===== Tabs ===== */
 document.getElementById("tabs").addEventListener("click", function(e){
   var b = e.target.closest("button"); if(!b) return;
@@ -136,10 +137,10 @@ window.pagar = async function(id){
   var monto = Number(val);
   if(!(monto > 0)) return msg("pMsg", "Monto inválido.", true);
   if(monto > saldo) return msg("pMsg", "⛔ El pago (" + fmtM(monto, p.moeda) + ") es mayor que el saldo (" + fmtM(saldo, p.moeda) + ").", true);
-  var retiroId = await retiroDesdeCaja(p.moeda, monto, "Pago proveedor", p.proveedor || p.titulo, "OiMira Pagos: " + p.titulo);
-  var r = await sb.rpc("pago_abonar_factura", { p_factura: id, p_monto: monto, p_nota: null, p_retiro: retiroId });
-  if(r.error) return msg("pMsg", r.error.message, true);
-  var d = r.data || {};
+  var canal = elegirCanalCaja(p.moeda, "pMsg"); if(canal === undefined) return;
+  var r = await sb.rpc("pago_pagar_factura", { p_factura: id, p_monto: monto, p_canal: canal, p_nota: null });
+  if(r.error) return msg("pMsg", errRed(r.error), true);
+  var d = r.data || {}; var retiroId = d.retiro;
   if(d.pagada) msg("pMsg", "✅ Factura pagada por completo." + (d.proxima ? " Se creó la próxima (" + fmtD(d.proxima) + ")." : "") + (retiroId ? " Descontado de la caja." : ""));
   else msg("pMsg", "✅ Abono registrado. Saldo restante: " + fmtM(d.saldo, p.moeda) + "." + (retiroId ? " Descontado de la caja." : ""));
   cargarPagos();
@@ -157,7 +158,8 @@ window.editarPago = function(id){
 };
 window.borrarPago = async function(id){
   if(!confirm("¿Eliminar este pago?")) return;
-  await sb.from("pago_factura").delete().eq("id", id);
+  var r = await sb.from("pago_factura").delete().eq("id", id);
+  if(r.error) return msg("pMsg", "No se eliminó: " + errRed(r.error), true);
   cargarPagos();
 };
 
@@ -219,21 +221,24 @@ window.abonar = async function(id){
     if(monto > saldo) return msg("cMsg", "⛔ El abono (" + fmtM(monto, cred.moeda) + ") es mayor que el saldo (" + fmtM(saldo, cred.moeda) + "). Máximo: " + fmtM(saldo, cred.moeda) + ".", true);
   }
   var nota = document.getElementById("abn-" + id).value.trim() || null;
-  var retiroId = cred ? await retiroDesdeCaja(cred.moeda, monto, "Abono a crédito", cred.proveedor, "OiMira Pagos: abono crédito " + cred.proveedor) : null;
-  var r = await sb.rpc("pago_abonar_credito", { p_credito: id, p_monto: monto, p_nota: nota, p_retiro: retiroId });
-  if(r.error) return msg("cMsg", r.error.message, true);
+  var canal = cred ? elegirCanalCaja(cred.moeda, "cMsg") : null; if(canal === undefined) return;
+  var r = await sb.rpc("pago_pagar_credito", { p_credito: id, p_monto: monto, p_canal: canal, p_nota: nota });
+  if(r.error) return msg("cMsg", errRed(r.error), true);
+  var retiroId = (r.data || {}).retiro;
   msg("cMsg", "✅ Abono registrado." + (retiroId ? " Descontado de la caja." : ""));
   cargarCreditos();
 };
 
 window.cerrarCredito = async function(id){
   if(!confirm("¿Cerrar este crédito? (saldo en cero)")) return;
-  await sb.from("pago_credito").update({ cerrado: true }).eq("id", id);
+  var r = await sb.from("pago_credito").update({ cerrado: true }).eq("id", id);
+  if(r.error) return msg("cMsg", "No se cerró: " + errRed(r.error), true);
   cargarCreditos();
 };
 window.borrarCredito = async function(id){
   if(!confirm("¿Eliminar este crédito con sus abonos?")) return;
-  await sb.from("pago_credito").delete().eq("id", id);
+  var r = await sb.from("pago_credito").delete().eq("id", id);
+  if(r.error) return msg("cMsg", "No se eliminó: " + errRed(r.error), true);
   cargarCreditos();
 };
 

@@ -1,6 +1,6 @@
 // SW resiliente (PROTOCOLO PWA RESILIENTE, 2026-09-13). Network-first: guarda la cáscara para abrir sin internet
 // y NUNCA guarda ni muestra un 502/503/504 del hosting si hay copia buena. Datos (Supabase) nunca pasan por caché.
-const CACHE = "pagos-v3";
+const CACHE = "pagos-v4";
 const PREFIJO = "pagos"; // solo se borran cachés viejas de ESTA app (en GitHub Pages varias apps comparten origen)
 const ASSETS = ["./","./index.html","./app.js","./config.js","./manifest.json","./icons/icon-192.png","./icons/icon-512.png"];
 
