@@ -216,14 +216,23 @@ async function cargarPagos(){
   if(grupos.prox.length) html += '<div class="sec-t">📅 Próximos</div>' + grupos.prox.map(function(p){ return itemHTML(p, "", '<span class="tag prox">' + fmtD(p.vence) + '</span>'); }).join("");
   $("#pLista").innerHTML = html || '<p style="color:var(--muted);font-size:13.5px;text-align:center;padding:20px">No hay pagos pendientes. 🎉</p>';
 
+  pintarHistPagos();
+}
+/* 🔎 buscadores (2026-09-29, pedido de Polley): sin acentos, por proveedor, descripción, nota, monto o fecha (dd/mm) */
+function normB(t){ return String(t == null ? "" : t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
+function coincide(q, partes){ q = normB(q).trim(); if(!q) return true; var txt = normB(partes.join(" ")); return q.split(/\s+/).every(function(w){ return txt.indexOf(w) >= 0; }); }
+function pintarHistPagos(){
+  var q = $("#pHistBusca") ? $("#pHistBusca").value : "";
   var pagadosTodos = PAGOS.filter(function(p){ return p.estado === "pagado"; });
   $("#pHistN").textContent = pagadosTodos.length;
-  var pagados = pagadosTodos.sort(function(a,b){ return (b.pagado_at || "").localeCompare(a.pagado_at || ""); }).slice(0, 30);
+  var lista = pagadosTodos.filter(function(p){ return coincide(q, [p.titulo, p.proveedor, p.nota, p.monto, p.moeda, p.pagado_at ? fmtD(p.pagado_at.slice(0,10)) : ""]); })
+    .sort(function(a,b){ return (b.pagado_at || "").localeCompare(a.pagado_at || ""); });
+  var pagados = q ? lista : lista.slice(0, 30);
   $("#pPagados").innerHTML = pagados.map(function(p){
     return '<div class="item"><div class="row" style="justify-content:space-between">' +
-      '<div><b>' + esc(p.titulo) + '</b><div class="meta">' + fmtM(p.monto, p.moeda) + ' · pagado ' + (p.pagado_at ? fmtD(p.pagado_at.slice(0,10)) : '') + '</div></div>' +
+      '<div><b>' + esc(p.titulo) + '</b>' + (p.proveedor ? ' <span class="meta">· ' + esc(p.proveedor) + '</span>' : '') + '<div class="meta">' + fmtM(p.monto, p.moeda) + ' · pagado ' + (p.pagado_at ? fmtD(p.pagado_at.slice(0,10)) : '') + '</div></div>' +
       '<span class="tag ok">pagado</span></div></div>';
-  }).join("") || '<p class="meta" style="padding:8px">Todavía no hay pagos en el histórico.</p>';
+  }).join("") || '<p class="meta" style="padding:8px">' + (q ? "Nada coincide con la búsqueda." : "Todavía no hay pagos en el histórico.") + '</p>';
 }
 
 window.pagar = async function(id){
@@ -279,6 +288,9 @@ async function cargarCreditos(){
   var err = await cargarDatos();
   if(err){ $("#cLista").innerHTML = '<p class="msg err">' + esc(errRed(err)) + '</p>'; return; }
   CREDITOS = DATOS.creditos || []; ABONOS = DATOS.abonos || [];
+  pintarCreditos();
+}
+function pintarCreditos(){
   function saldoDe(c){
     var ab = ABONOS.filter(function(a){ return a.credito_id === c.id; }).reduce(function(s,a){ return s + Number(a.monto); }, 0);
     return { abonado: ab, saldo: Number(c.monto_total) - ab };
@@ -303,12 +315,17 @@ async function cargarCreditos(){
       '</div>' : '<div class="tag ok" style="margin-top:8px">cerrado</div>') +
     '</div>';
   }
+  function textoDe(c){ return [c.proveedor, c.descripcion, c.monto_total, c.moeda].concat(ABONOS.filter(function(a){ return a.credito_id === c.id; }).map(function(a){ return fmtD(a.fecha) + " " + a.monto + " " + (a.nota || ""); })); }
+  var q1 = $("#cBusca") ? $("#cBusca").value : "", q2 = $("#cHistBusca") ? $("#cHistBusca").value : "";
   var abiertos = CREDITOS.filter(function(c){ return !c.cerrado; });
   var cerrados = CREDITOS.filter(function(c){ return c.cerrado; });
-  $("#cLista").innerHTML = abiertos.map(credHTML).join("") || '<p style="color:var(--muted);font-size:13.5px;text-align:center;padding:20px">No hay créditos abiertos.</p>';
+  var ab = abiertos.filter(function(c){ return coincide(q1, textoDe(c)); });
+  var ce = cerrados.filter(function(c){ return coincide(q2, textoDe(c)); });
+  $("#cLista").innerHTML = ab.map(credHTML).join("") || '<p style="color:var(--muted);font-size:13.5px;text-align:center;padding:20px">' + (q1 ? "Nada coincide con la búsqueda." : "No hay créditos abiertos.") + '</p>';
   $("#cHistN").textContent = cerrados.length;
-  $("#cCerrados").innerHTML = cerrados.map(credHTML).join("") || '<p class="meta" style="padding:8px">Ninguno todavía.</p>';
+  $("#cCerrados").innerHTML = ce.map(credHTML).join("") || '<p class="meta" style="padding:8px">' + (q2 ? "Nada coincide con la búsqueda." : "Ninguno todavía.") + '</p>';
 }
+
 window.abonar = async function(id){
   var monto = Number(document.getElementById("ab-" + id).value || 0);
   if(!(monto > 0)) return msg("cMsg", "Escribe el monto del abono.", true);
@@ -341,4 +358,6 @@ window.borrarCredito = async function(id){
   cargarCreditos();
 };
 
+["pHistBusca"].forEach(function(id){ var el = document.getElementById(id); if(el) el.addEventListener("input", pintarHistPagos); });
+["cBusca","cHistBusca"].forEach(function(id){ var el = document.getElementById(id); if(el) el.addEventListener("input", pintarCreditos); });
 if(SES) entrar(); else mostrarGate("");
