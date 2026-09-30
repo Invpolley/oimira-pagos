@@ -50,9 +50,56 @@ function crearFetchConCopia(CACHE_DATOS, rpcLectura) {
     return r;
   };
 }
-var sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY, { global: { fetch: crearFetchConCopia("datos-pagos-v1") } });
+var sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY, { global: { fetch: crearFetchConCopia("datos-pagos-v1", ["pagos_datos"]) } });
 var $ = function(s){ return document.querySelector(s); };
 document.getElementById("ver").textContent = C.APP_VERSION;
+
+/* ===== ENTRADA CON PIN (2026-09-29) =====
+   Las tablas ya no se leen directo: todo pasa por funciones del servidor que exigen la sesión (token) que da pagos_login.
+   Entra quien tenga el permiso "OiMira Pagos" (config.fitmassa.com → 👥 Accesos) o el dueño. La sesión dura 30 días en este equipo.
+   Sin señal: quien ya entró ve la última copia guardada. */
+var SES_KEY = "pagos_sesion_v1";
+var SES = null;
+try { SES = JSON.parse(localStorage.getItem(SES_KEY) || "null"); } catch(e) { SES = null; }
+if(SES && !(SES.hasta > Date.now())) SES = null;
+function tok(){ return SES ? SES.token : null; }
+function mostrarGate(txt){
+  $("#pinGate").classList.remove("hidden"); $("#pinMsg").textContent = txt || ""; $("#pinInput").value = ""; setTimeout(function(){ $("#pinInput").focus(); }, 50);
+}
+function sesionFuera(txt){ SES = null; try { localStorage.removeItem(SES_KEY); } catch(e){} mostrarGate(txt); }
+function entrar(){
+  $("#pinGate").classList.add("hidden");
+  $("#quien").textContent = "👤 " + String(SES.nombre || "").split(" ")[0];
+  cargarPagos();
+}
+async function rpcP(nombre, args){
+  var r = await sb.rpc(nombre, Object.assign({ p_token: tok() }, args || {}));
+  if(r.error && /Sesión vencida|Sin permiso/i.test(r.error.message || "")) sesionFuera(r.error.message);
+  return r;
+}
+var DATOS = { facturas: [], creditos: [], abonos: [] };
+async function cargarDatos(){
+  var r = await rpcP("pagos_datos");
+  if(r.error) return r.error;
+  DATOS = r.data || DATOS; return null;
+}
+$("#pinEntrar").onclick = async function(){
+  var pin = $("#pinInput").value.trim();
+  if(!/^[0-9]{4,10}$/.test(pin)) return ($("#pinMsg").textContent = "PIN incorrecto");
+  if(!navigator.onLine) return ($("#pinMsg").textContent = "Sin señal: para entrar la primera vez hace falta internet.");
+  $("#pinEntrar").disabled = true; $("#pinEntrar").textContent = "Verificando…";
+  try {
+    var r = await sb.rpc("pagos_login", { p_pin: pin });
+    if(r.error) throw r.error;
+    if(!r.data || !r.data.ok) { $("#pinMsg").textContent = "PIN incorrecto o sin permiso para OiMira Pagos"; $("#pinInput").value = ""; return; }
+    SES = { token: r.data.token, nombre: r.data.nombre, hasta: Date.now() + 29 * 86400000 };
+    try { localStorage.setItem(SES_KEY, JSON.stringify(SES)); } catch(e){}
+    entrar();
+  } catch(e) { $("#pinMsg").textContent = errRed(e); }
+  finally { $("#pinEntrar").disabled = false; $("#pinEntrar").textContent = "Entrar"; }
+};
+$("#pinInput").addEventListener("keydown", function(e){ if(e.key === "Enter") $("#pinEntrar").click(); });
+$("#salir").onclick = function(e){ e.preventDefault(); if(confirm("¿Salir de OiMira Pagos en este equipo?")) sesionFuera(""); };
 
 // Fecha local Venezuela (UTC-4) — leccion aprendida: nunca UTC para fechas de negocio.
 function hoyVE(){ return new Date(Date.now() - 14400000).toISOString().slice(0,10); }
@@ -113,10 +160,8 @@ $("#pGuardar").onclick = async function(){
     recurrencia: $("#pRec").value,
     nota: $("#pNota").value.trim() || null,
   };
-  var r;
-  if(EDIT_ID) r = await sb.from("pago_factura").update(fila).eq("id", EDIT_ID);
-  else r = await sb.from("pago_factura").insert(fila);
-  if(r.error) return msg("pMsg", r.error.message, true);
+  var r = await rpcP("pagos_factura_guardar", { p_id: EDIT_ID, p_fila: fila });
+  if(r.error) return msg("pMsg", errRed(r.error), true);
   msg("pMsg", EDIT_ID ? "✅ Actualizado." : "✅ Guardado.");
   limpiarFormPago();
   cargarPagos();
@@ -132,9 +177,10 @@ function limpiarFormPago(){
 
 var PAGOS = [];
 async function cargarPagos(){
-  var r = await sb.from("pago_factura_saldo").select("*").order("vence");
-  if(r.error){ $("#pLista").innerHTML = '<p class="msg err">' + esc(r.error.message) + '</p>'; return; }
-  PAGOS = r.data || [];
+  if(!tok()) return;
+  var err = await cargarDatos();
+  if(err){ $("#pLista").innerHTML = '<p class="msg err">' + esc(errRed(err)) + '</p>'; return; }
+  PAGOS = DATOS.facturas || [];
   var hoy = hoyVE(), man = addDias(hoy, 1);
   var pend = PAGOS.filter(function(p){ return p.estado === "pendiente"; });
   var grupos = { venc: [], hoy: [], man: [], prox: [] };
@@ -188,7 +234,7 @@ window.pagar = async function(id){
   if(!(monto > 0)) return msg("pMsg", "Monto inválido.", true);
   if(monto > saldo) return msg("pMsg", "⛔ El pago (" + fmtM(monto, p.moeda) + ") es mayor que el saldo (" + fmtM(saldo, p.moeda) + ").", true);
   var canal = elegirCanalCaja(p.moeda, "pMsg"); if(canal === undefined) return;
-  var r = await sb.rpc("pago_pagar_factura", { p_factura: id, p_monto: monto, p_canal: canal, p_nota: null });
+  var r = await rpcP("pagos_pagar_factura", { p_factura: id, p_monto: monto, p_canal: canal, p_nota: null });
   if(r.error) return msg("pMsg", errRed(r.error), true);
   var d = r.data || {}; var retiroId = d.retiro;
   if(d.pagada) msg("pMsg", "✅ Factura pagada por completo." + (d.proxima ? " Se creó la próxima (" + fmtD(d.proxima) + ")." : "") + (retiroId ? " Descontado de la caja." : ""));
@@ -208,7 +254,7 @@ window.editarPago = function(id){
 };
 window.borrarPago = async function(id){
   if(!confirm("¿Eliminar este pago?")) return;
-  var r = await sb.from("pago_factura").delete().eq("id", id);
+  var r = await rpcP("pagos_factura_borrar", { p_id: id });
   if(r.error) return msg("pMsg", "No se eliminó: " + errRed(r.error), true);
   cargarPagos();
 };
@@ -220,18 +266,18 @@ $("#cGuardar").onclick = async function(){
   if(!prov) return msg("cMsg", "Escribe el proveedor.", true);
   var monto = Number($("#cMonto").value || 0);
   if(!(monto > 0)) return msg("cMsg", "Escribe el monto total del crédito.", true);
-  var r = await sb.from("pago_credito").insert({ proveedor: prov, descripcion: $("#cDesc").value.trim() || null, monto_total: monto, moeda: $("#cMoeda").value });
-  if(r.error) return msg("cMsg", r.error.message, true);
+  var r = await rpcP("pagos_credito_crear", { p_proveedor: prov, p_descripcion: $("#cDesc").value.trim() || null, p_monto: monto, p_moeda: $("#cMoeda").value });
+  if(r.error) return msg("cMsg", errRed(r.error), true);
   ["cProv","cDesc","cMonto"].forEach(function(i){ $("#" + i).value = ""; });
   msg("cMsg", "✅ Crédito guardado.");
   cargarCreditos();
 };
 
 async function cargarCreditos(){
-  var rc = await sb.from("pago_credito").select("*").order("created_at", { ascending: false });
-  var ra = await sb.from("pago_credito_abono").select("*").order("fecha");
-  if(rc.error){ $("#cLista").innerHTML = '<p class="msg err">' + esc(rc.error.message) + '</p>'; return; }
-  CREDITOS = rc.data || []; ABONOS = ra.data || [];
+  if(!tok()) return;
+  var err = await cargarDatos();
+  if(err){ $("#cLista").innerHTML = '<p class="msg err">' + esc(errRed(err)) + '</p>'; return; }
+  CREDITOS = DATOS.creditos || []; ABONOS = DATOS.abonos || [];
   function saldoDe(c){
     var ab = ABONOS.filter(function(a){ return a.credito_id === c.id; }).reduce(function(s,a){ return s + Number(a.monto); }, 0);
     return { abonado: ab, saldo: Number(c.monto_total) - ab };
@@ -272,7 +318,7 @@ window.abonar = async function(id){
   }
   var nota = document.getElementById("abn-" + id).value.trim() || null;
   var canal = cred ? elegirCanalCaja(cred.moeda, "cMsg") : null; if(canal === undefined) return;
-  var r = await sb.rpc("pago_pagar_credito", { p_credito: id, p_monto: monto, p_canal: canal, p_nota: nota });
+  var r = await rpcP("pagos_pagar_credito", { p_credito: id, p_monto: monto, p_canal: canal, p_nota: nota });
   if(r.error) return msg("cMsg", errRed(r.error), true);
   var retiroId = (r.data || {}).retiro;
   msg("cMsg", "✅ Abono registrado." + (retiroId ? " Descontado de la caja." : ""));
@@ -281,15 +327,15 @@ window.abonar = async function(id){
 
 window.cerrarCredito = async function(id){
   if(!confirm("¿Cerrar este crédito? (saldo en cero)")) return;
-  var r = await sb.from("pago_credito").update({ cerrado: true }).eq("id", id);
+  var r = await rpcP("pagos_credito_cerrar", { p_id: id });
   if(r.error) return msg("cMsg", "No se cerró: " + errRed(r.error), true);
   cargarCreditos();
 };
 window.borrarCredito = async function(id){
   if(!confirm("¿Eliminar este crédito con sus abonos?")) return;
-  var r = await sb.from("pago_credito").delete().eq("id", id);
+  var r = await rpcP("pagos_credito_borrar", { p_id: id });
   if(r.error) return msg("cMsg", "No se eliminó: " + errRed(r.error), true);
   cargarCreditos();
 };
 
-cargarPagos();
+if(SES) entrar(); else mostrarGate("");

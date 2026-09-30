@@ -64,9 +64,20 @@
   Estás usando la última versión guardada en este equipo. <b>Puedes seguir trabajando:</b> los datos se guardan y se envían solos cuando el servidor vuelva.</div>
 </div>
 
+<!-- 2026-09-29: entrada con PIN personal (el servidor exige la sesión en cada consulta) -->
+<div id="pinGate" style="position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px">
+  <div class="card" style="max-width:340px;width:100%;text-align:center">
+    <div style="font-size:40px">💳</div>
+    <b style="font-size:17px">OiMira Pagos</b>
+    <p class="meta" style="font-size:13px;color:var(--muted)">Entra con tu PIN personal (el mismo de Compras).</p>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" style="width:100%;text-align:center;font-size:20px;letter-spacing:4px" />
+    <button class="btn" id="pinEntrar" style="width:100%;margin-top:10px">Entrar</button>
+    <div id="pinMsg" class="msg err"></div>
+  </div>
+</div>
 <header>
   <h1>💳 OiMira Pagos</h1>
-  <div class="sub">Facturas, proveedores y créditos</div>
+  <div class="sub">Facturas, proveedores y créditos · <span id="quien"></span> <a href="#" id="salir" style="color:#fff;opacity:.85">salir</a></div>
 </header>
 <nav id="tabs">
   <button data-t="pagos" class="act">📅 Pagos</button>
@@ -122,9 +133,9 @@
   </section>
 </main>
 <div class="foot">OiMira Pagos · <span id="ver"></span> · v2026-08-22.1</div>
-<script src="config.js"></script>
+<script src="config.js?v=2026-09-29.1"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=2026-09-29.1"></script>
 <script>
 if ("serviceWorker" in navigator) addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js?v=20260913").then(reg=>{ reg.update(); reg.addEventListener("updatefound",()=>{ const w=reg.installing; w&&w.addEventListener("statechange",()=>{ if(w.state==="activated"&&navigator.serviceWorker.controller) location.reload(); }); }); }).catch(()=>{}); });
 </script>
