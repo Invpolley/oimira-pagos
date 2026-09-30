@@ -216,13 +216,14 @@ async function cargarPagos(){
   if(grupos.prox.length) html += '<div class="sec-t">📅 Próximos</div>' + grupos.prox.map(function(p){ return itemHTML(p, "", '<span class="tag prox">' + fmtD(p.vence) + '</span>'); }).join("");
   $("#pLista").innerHTML = html || '<p style="color:var(--muted);font-size:13.5px;text-align:center;padding:20px">No hay pagos pendientes. 🎉</p>';
 
-  var pagados = PAGOS.filter(function(p){ return p.estado === "pagado"; })
-    .sort(function(a,b){ return (b.pagado_at || "").localeCompare(a.pagado_at || ""); }).slice(0, 15);
+  var pagadosTodos = PAGOS.filter(function(p){ return p.estado === "pagado"; });
+  $("#pHistN").textContent = pagadosTodos.length;
+  var pagados = pagadosTodos.sort(function(a,b){ return (b.pagado_at || "").localeCompare(a.pagado_at || ""); }).slice(0, 30);
   $("#pPagados").innerHTML = pagados.map(function(p){
     return '<div class="item"><div class="row" style="justify-content:space-between">' +
       '<div><b>' + esc(p.titulo) + '</b><div class="meta">' + fmtM(p.monto, p.moeda) + ' · pagado ' + (p.pagado_at ? fmtD(p.pagado_at.slice(0,10)) : '') + '</div></div>' +
       '<span class="tag ok">pagado</span></div></div>';
-  }).join("") || '<p class="meta" style="padding:8px">Todavía no hay pagos registrados como pagados.</p>';
+  }).join("") || '<p class="meta" style="padding:8px">Todavía no hay pagos en el histórico.</p>';
 }
 
 window.pagar = async function(id){
@@ -305,6 +306,7 @@ async function cargarCreditos(){
   var abiertos = CREDITOS.filter(function(c){ return !c.cerrado; });
   var cerrados = CREDITOS.filter(function(c){ return c.cerrado; });
   $("#cLista").innerHTML = abiertos.map(credHTML).join("") || '<p style="color:var(--muted);font-size:13.5px;text-align:center;padding:20px">No hay créditos abiertos.</p>';
+  $("#cHistN").textContent = cerrados.length;
   $("#cCerrados").innerHTML = cerrados.map(credHTML).join("") || '<p class="meta" style="padding:8px">Ninguno todavía.</p>';
 }
 window.abonar = async function(id){
@@ -321,7 +323,8 @@ window.abonar = async function(id){
   var r = await rpcP("pagos_pagar_credito", { p_credito: id, p_monto: monto, p_canal: canal, p_nota: nota });
   if(r.error) return msg("cMsg", errRed(r.error), true);
   var retiroId = (r.data || {}).retiro;
-  msg("cMsg", "✅ Abono registrado." + (retiroId ? " Descontado de la caja." : ""));
+  // 2026-09-29 (Polley): pagado por completo = pasa solo al histórico
+  msg("cMsg", ((r.data || {}).cerrado ? "✅ Crédito pagado por completo: pasó al 📜 histórico." : "✅ Abono registrado.") + (retiroId ? " Descontado de la caja." : ""));
   cargarCreditos();
 };
 
