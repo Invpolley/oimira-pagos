@@ -114,7 +114,7 @@ function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace
 /* ===== Interconexion con la caja OiMira ===== */
 var CANALES_CAJA = {
   "R$": [["Efectivo","💵 Efectivo R$"],["PIX","🇧🇷 PIX"],["PuntoBr","💳 Punto Br"]],
-  "Bs": [["PagoMovil","📲 Pago Móvil"],["BanescoPos","💳 Banesco POS"],["BsEfectivo","💵 Bs efectivo"]],
+  "Bs": [["PagoMovil","🏦 Banesco Bs (Pago Móvil + POS)"],["BsEfectivo","💵 Bs efectivo"]], // 01/10/2026: Pago Móvil y POS son la misma cuenta
   "USD": [["USD","💵 USD"]]
 };
 // Pregunta si el pago salio de la caja y de que canal. Devuelve el canal (texto) o null (otro dinero).
