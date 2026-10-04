@@ -112,6 +112,7 @@ function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace
 
 
 /* ===== Interconexion con la caja OiMira ===== */
+// Respaldo si el servidor todavía no mandó los canales (sin señal y sin copia)
 var CANALES_CAJA = {
   "R$": [["Efectivo","💵 Efectivo R$"],["PIX","🇧🇷 PIX"],["PuntoBr","💳 Punto Br"]],
   "Bs": [["PagoMovil","🏦 Banesco Bs (Pago Móvil + POS)"],["BsEfectivo","💵 Bs efectivo"]], // 01/10/2026: Pago Móvil y POS son la misma cuenta
@@ -123,7 +124,9 @@ var CANALES_CAJA = {
 // del retiro (sin senal, factura ya pagada...), quedaba el dinero descontado de la caja sin el pago.
 function elegirCanalCaja(moeda, msgId){
   if(!confirm("¿Este pago salió de la CAJA OiMira?\n\nAceptar = SÍ (se descuenta de la caja)\nCancelar = No (se pagó con otro dinero)")) return null;
-  var ops = CANALES_CAJA[moeda] || [];
+  // 04/10/2026: los canales vienen de la caja (config.fitmassa.com → 🧾 Caja); la lista fija queda solo de respaldo
+  var desdeCaja = ((DATOS && DATOS.canales) || []).filter(function(k){ return k.moeda === moeda; }).map(function(k){ return [k.key, k.label]; });
+  var ops = desdeCaja.length ? desdeCaja : (CANALES_CAJA[moeda] || []);
   var menu = ops.map(function(o,i){ return (i+1) + ". " + o[1]; }).join("\n");
   var sel = prompt("¿De qué caja salió?\n\n" + menu + "\n\nEscribe el número:", "1");
   if(sel === null) return undefined; // cancelado: no se registra nada
