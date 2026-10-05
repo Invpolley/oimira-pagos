@@ -298,16 +298,32 @@ function pintarCreditos(){
     var ab = ABONOS.filter(function(a){ return a.credito_id === c.id; }).reduce(function(s,a){ return s + Number(a.monto); }, 0);
     return { abonado: ab, saldo: Number(c.monto_total) - ab };
   }
+  // 2026-10-05 (Polley): antigüedad de cada deuda y "hace cuánto" de cada abono.
+  // La fecha de la deuda = la fecha escrita en proveedor/descripción (dd/mm/aa o dd/mm/aaaa); si no hay, la de registro.
+  function fechaDeuda(c){
+    var t = (c.proveedor || "") + " " + (c.descripcion || "");
+    var m = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if(m){ var y = m[3].length === 2 ? "20" + m[3] : m[3]; return y + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2); }
+    return String(c.created_at || hoyVE()).slice(0, 10);
+  }
+  function diasDesde(iso){ return Math.max(0, Math.round((new Date(hoyVE() + "T12:00:00") - new Date(String(iso).slice(0,10) + "T12:00:00")) / 86400000)); }
+  function hace(n){ return n === 0 ? "hoy" : n === 1 ? "ayer" : "hace " + n + " días"; }
+  function edadTag(c){
+    var n = diasDesde(fechaDeuda(c));
+    var col = c.cerrado ? "var(--muted)" : n >= 30 ? "#c2410c" : "var(--muted)";
+    var bg = !c.cerrado && n >= 30 ? "background:#ffedd5;border-radius:6px;padding:1px 6px;" : "";
+    return '<div class="meta" style="margin-top:2px"><span style="color:' + col + ';' + bg + (n >= 30 && !c.cerrado ? 'font-weight:700' : '') + '">📅 desde ' + fmtD(fechaDeuda(c)) + ' · ' + (n === 0 ? "de hoy" : n + " día" + (n === 1 ? "" : "s")) + (n >= 30 && !c.cerrado ? " ⚠" : "") + '</span></div>';
+  }
   function credHTML(c){
     var s = saldoDe(c);
-    var abonos = ABONOS.filter(function(a){ return a.credito_id === c.id; });
+    var abonos = ABONOS.filter(function(a){ return a.credito_id === c.id; }).slice().sort(function(a, b){ return String(a.fecha).localeCompare(String(b.fecha)); });
     return '<div class="card">' +
       '<div class="row" style="justify-content:space-between">' +
         '<div><b>' + esc(c.proveedor) + '</b>' + (c.descripcion ? ' <span class="meta">· ' + esc(c.descripcion) + '</span>' : '') +
-        '<div class="meta">Crédito: ' + fmtM(c.monto_total, c.moeda) + ' · Abonado: ' + fmtM(s.abonado, c.moeda) + '</div></div>' +
+        '<div class="meta">Crédito: ' + fmtM(c.monto_total, c.moeda) + ' · Abonado: ' + fmtM(s.abonado, c.moeda) + '</div>' + edadTag(c) + '</div>' +
         '<div style="text-align:right"><div class="saldo" style="color:' + (s.saldo > 0 ? "var(--bad)" : "var(--ok)") + '">' + fmtM(s.saldo, c.moeda) + '</div><div class="meta">saldo</div></div>' +
       '</div>' +
-      (abonos.length ? '<div class="meta" style="margin-top:6px">' + abonos.map(function(a){ return '💵 ' + fmtD(a.fecha) + ': ' + fmtM(a.monto, c.moeda) + (a.nota ? ' (' + esc(a.nota) + ')' : ''); }).join('<br>') + '</div>' : '') +
+      (abonos.length ? '<div class="meta" style="margin-top:6px">' + abonos.map(function(a){ return '<span style="color:#15803d;font-weight:700">+' + fmtM(a.monto, c.moeda) + '</span> · ' + fmtD(a.fecha) + ' <span style="color:var(--muted)">(' + hace(diasDesde(a.fecha)) + ')</span>' + (a.nota ? ' · ' + esc(a.nota) : ''); }).join('<br>') + '</div>' : '') +
       (!c.cerrado ?
       '<div class="row" style="margin-top:8px">' +
         '<input id="ab-' + c.id + '" type="number" step="0.01" placeholder="Monto del abono" style="width:140px" />' +
@@ -322,6 +338,22 @@ function pintarCreditos(){
   var q1 = $("#cBusca") ? $("#cBusca").value : "", q2 = $("#cHistBusca") ? $("#cHistBusca").value : "";
   var abiertos = CREDITOS.filter(function(c){ return !c.cerrado; });
   var cerrados = CREDITOS.filter(function(c){ return c.cerrado; });
+  // 💰 Gran total de deudas (todas las abiertas, por moneda) arriba
+  var tot = {}, vieja = null, nViejas = 0;
+  abiertos.forEach(function(c){
+    var s = saldoDe(c); if(!(s.saldo > 0)) return;
+    var mo = c.moeda || "R$"; tot[mo] = (tot[mo] || 0) + s.saldo;
+    var n = diasDesde(fechaDeuda(c)); if(n >= 30) nViejas++;
+    if(!vieja || n > vieja.n) vieja = { n: n, c: c };
+  });
+  var monedas = Object.keys(tot);
+  $("#cTotal").innerHTML = monedas.length ?
+    '<div class="card" style="border:2px solid var(--bad)">' +
+      '<div class="meta">💰 Total que debemos · ' + abiertos.filter(function(c){ return saldoDe(c).saldo > 0; }).length + ' crédito(s) abiertos</div>' +
+      monedas.map(function(mo){ return '<div class="saldo" style="color:var(--bad);font-size:26px">' + fmtM(tot[mo], mo) + '</div>'; }).join("") +
+      (vieja ? '<div class="meta" style="margin-top:4px">La más vieja: <b>' + esc(vieja.c.proveedor) + '</b> · ' + vieja.n + ' días</div>' : '') +
+      (nViejas ? '<div style="margin-top:6px;background:#ffedd5;color:#9a3412;border-radius:8px;padding:6px 8px;font-size:13px;font-weight:700">⚠ ' + nViejas + ' deuda(s) con 30 días o más</div>' : '') +
+    '</div>' : '<div class="card" style="border:2px solid var(--ok)"><div class="meta">💰 Total que debemos</div><div class="saldo" style="color:var(--ok)">Sin deudas abiertas 🎉</div></div>';
   var ab = abiertos.filter(function(c){ return coincide(q1, textoDe(c)); });
   var ce = cerrados.filter(function(c){ return coincide(q2, textoDe(c)); });
   $("#cLista").innerHTML = ab.map(credHTML).join("") || '<p style="color:var(--muted);font-size:13.5px;text-align:center;padding:20px">' + (q1 ? "Nada coincide con la búsqueda." : "No hay créditos abiertos.") + '</p>';
