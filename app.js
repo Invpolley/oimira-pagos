@@ -321,7 +321,7 @@ function pintarCreditos(){
       '<div class="row" style="justify-content:space-between">' +
         '<div><b>' + esc(c.proveedor) + '</b>' + (c.descripcion ? ' <span class="meta">· ' + esc(c.descripcion) + '</span>' : '') +
         '<div class="meta">Crédito: ' + fmtM(c.monto_total, c.moeda) + ' · Abonado: ' + fmtM(s.abonado, c.moeda) + '</div>' + edadTag(c) + '</div>' +
-        '<div style="text-align:right"><div class="saldo" style="color:' + (s.saldo > 0 ? "var(--bad)" : "var(--ok)") + '">' + fmtM(s.saldo, c.moeda) + '</div><div class="meta">saldo</div></div>' +
+        '<div style="text-align:right;white-space:nowrap"><span class="meta" style="margin-right:6px">saldo</span><span class="saldo" style="display:inline;color:' + (s.saldo > 0 ? "var(--bad)" : "var(--ok)") + '">' + fmtM(s.saldo, c.moeda) + '</span></div>' +
       '</div>' +
       (abonos.length ? '<div class="meta" style="margin-top:6px">' + abonos.map(function(a){ return '<span style="color:#15803d;font-weight:700">+' + fmtM(a.monto, c.moeda) + '</span> · ' + fmtD(a.fecha) + ' <span style="color:var(--muted)">(' + hace(diasDesde(a.fecha)) + ')</span>' + (a.nota ? ' · ' + esc(a.nota) : ''); }).join('<br>') + '</div>' : '') +
       (!c.cerrado ?

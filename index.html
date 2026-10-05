@@ -135,9 +135,9 @@
   </section>
 </main>
 <div class="foot">OiMira Pagos · <span id="ver"></span></div>
-<script src="config.js?v=2026-10-05.1"></script>
+<script src="config.js?v=2026-10-05.2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="app.js?v=2026-10-05.1"></script>
+<script src="app.js?v=2026-10-05.2"></script>
 <script>
 if ("serviceWorker" in navigator) addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js?v=20260913").then(reg=>{ reg.update(); reg.addEventListener("updatefound",()=>{ const w=reg.installing; w&&w.addEventListener("statechange",()=>{ if(w.state==="activated"&&navigator.serviceWorker.controller) location.reload(); }); }); }).catch(()=>{}); });
 </script>
